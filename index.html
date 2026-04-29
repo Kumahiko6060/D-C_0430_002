@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>C7_Delta12_Integrated_V08_Q_Total_Fix</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@900&display=swap');
+        body { margin: 0; background: #000; color: #fff; font-family: 'Roboto Condensed', sans-serif; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+        
+        #display_area { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; border-bottom: 2px solid #333; position: relative; }
+        .monitor_label { font-size: 5vw; color: #aaa; margin-bottom: 5px; }
+        .ch_val { font-size: 35vw; font-weight: bold; line-height: 1; }
+        .unit_a { color: #ff3b30; text-shadow: 0 0 20px rgba(255,59,48,0.4); }
+        .unit_b { color: #007aff; text-shadow: 0 0 20px rgba(0,122,255,0.4); }
+
+        #standby_info { position: absolute; bottom: 15px; right: 15px; text-align: right; font-size: 4vw; color: #555; font-weight: bold; }
+
+        #control_panel { height: 38vh; padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: #111; }
+        .info_box { grid-column: span 2; display: flex; justify-content: space-between; align-items: center; padding: 0 15px; border: 1px solid #444; border-radius: 10px; }
+        #car_no_display { font-size: 12vw; color: #00ffff; }
+        
+        .btn { background: #333; color: #fff; border: none; border-radius: 8px; font-size: 5vw; font-weight: bold; font-family: inherit; }
+        .btn:active { opacity: 0.7; }
+        .btn_test_delta { background: #444; color: #ff9500; }
+        .btn_test_ch { background: #444; color: #ff3b30; }
+        .btn_ble { background: #007aff; grid-column: span 2; font-size: 6vw; }
+        
+        #status_label { grid-column: span 2; text-align: center; font-size: 3.5vw; color: #0f0; padding-top: 5px; min-height: 1.2em; }
+        input { background: #000; color: #fff; border: 1px solid #00ffff; font-size: 8vw; width: 100px; text-align: center; border-radius: 5px; font-family: inherit; }
+    </style>
+</head>
+<body>
+
+<div id="display_area">
+    <div class="monitor_label" id="active_label">ACTIVE: UNIT A</div>
+    <div id="active_ch" class="ch_val unit_a">CH 1</div>
+    <div id="standby_info">PRESET: UNIT B -> CH 2</div>
+</div>
+
+<div id="control_panel">
+    <div class="info_box">
+        <div><input type="number" id="input_car_no" value="1"></div>
+        <div id="car_no_display"># 1</div>
+    </div>
+    
+    <button id="btn_test_ch" class="btn btn_test_ch">CH KEEPER TEST</button>
+    <button id="btn_test_delta" class="btn btn_test_delta">⊿ Q-COL (TOTAL) TEST</button>
+    
+    <button id="connect_ble_btn" class="btn btn_ble">CONNECT M5_SUUKA_PRO</button>
+    
+    <div id="status_label">SYSTEM READY</div>
+</div>
+
+<script>
+    // --- Config ---
+    const vehicleId = "V01";
+    const firebaseConfig = { databaseURL: "https://fuji-channel-7-default-rtdb.asia-southeast1.firebasedatabase.app/" };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    // 最新のGAS URL
+    const SHEET_URL = "https://script.google.com/macros/s/AKfycbxgHeDU9Rb949LNeAWrml58UoS-AUOXdNAXPlpjxDsNhjuD5LimuQYE7z5kBr-cQETDVw/exec";
+
+    const CH_LINES = [
+        { name: "SF", p1: {lat:35.36894, lng:138.92622}, p2: {lat:35.36896, lng:138.92652} },
+        { name: "T1", p1: {lat:35.37250, lng:138.92480}, p2: {lat:35.37265, lng:138.92505} },
+        { name: "T3", p1: {lat:35.37395, lng:138.93240}, p2: {lat:35.37425, lng:138.93245} },
+        { name: "T10", p1: {lat:35.36850, lng:138.93880}, p2: {lat:35.36870, lng:138.93885} },
+        { name: "T13", p1: {lat:35.36500, lng:138.93600}, p2: {lat:35.36515, lng:138.93620} },
+        { name: "T15", p1: {lat:35.36505, lng:138.93000}, p2: {lat:35.36525, lng:138.93010} },
+        { name: "T16", p1: {lat:35.36775, lng:138.92750}, p2: {lat:35.36790, lng:138.92770} }
+    ];
+
+    const DELTA_GATES = [
+        { name: 'D1', lat1: 35.37250, lng1: 138.92484, lat2: 35.37266, lng2: 138.92505 },
+        { name: 'D2', lat1: 35.37517, lng1: 138.92873, lat2: 35.37533, lng2: 138.92882 },
+        { name: 'D3', lat1: 35.37414, lng1: 138.93241, lat2: 35.37429, lng2: 138.93245 },
+        { name: 'D4', lat1: 35.37130, lng1: 138.93333, lat2: 35.37133, lng2: 138.93356 },
+        { name: 'D5', lat1: 35.37152, lng1: 138.93722, lat2: 35.37172, lng2: 138.93725 },
+        { name: 'D6', lat1: 35.37022, lng1: 138.93892, lat2: 35.37025, lng2: 138.93915 },
+        { name: 'D7', lat1: 35.36855, lng1: 138.93883, lat2: 35.36873, lng2: 138.93888 },
+        { name: 'D8', lat1: 35.36640, lng1: 138.93855, lat2: 35.36642, lng2: 138.93878 },
+        { name: 'D9', lat1: 35.36506, lng1: 138.93603, lat2: 35.36516, lng2: 138.93617 },
+        { name: 'D10', lat1: 35.36510, lng1: 138.93005, lat2: 35.36523, lng2: 138.93010 },
+        { name: 'D11', lat1: 35.36750, lng1: 138.92765, lat2: 35.36765, lng2: 138.92782 },
+        { name: 'SF', lat1: 35.36840, lng1: 138.92620, lat2: 35.36842, lng2: 138.92645 }
+    ];
+
+    // --- State ---
+    let lastPos = null, lastCameraTime = 0;
+    let activeUnit = "M5_A"; 
+    let passedGatesInCurrentLap = new Set(), currentGateSplits = {}, lapStartTime = 0;
+    let bluetoothDevice, characteristic;
+
+    // --- チャンネル切替：Standbyキープ・ルール ---
+    function updateFirebaseKeep(idx, isManual = false) {
+        const now = Date.now();
+        if (!isManual && (now - lastCameraTime < 2000)) return; 
+
+        activeUnit = (activeUnit === "M5_A") ? "M5_B" : "M5_A";
+        const standbyUnit = (activeUnit === "M5_A") ? "M5_B" : "M5_A";
+        const nextCh = (idx + 1) % CH_LINES.length;
+
+        const updates = {};
+        updates[`vehicles/${vehicleId}/activeUnit`] = activeUnit;
+        updates[`vehicles/${vehicleId}/${standbyUnit}`] = nextCh;
+        
+        db.ref().update(updates).then(() => {
+            document.getElementById('status_label').innerText = `GATE: ${CH_LINES[idx].name} (Switch OK)`;
+        });
+        
+        const isA = (activeUnit === "M5_A");
+        const chDisplay = document.getElementById('active_ch');
+        chDisplay.innerText = `CH ${idx + 1}`;
+        chDisplay.className = `ch_val ${isA ? 'unit_a' : 'unit_b'}`;
+        document.getElementById('active_label').innerText = `ACTIVE: UNIT ${isA ? 'A' : 'B'}`;
+        document.getElementById('standby_info').innerText = `PRESET: UNIT ${isA ? 'B' : 'A'} -> CH ${nextCh + 1}`;
+        
+        lastCameraTime = now;
+    }
+
+    function isIntersect(p1, p2, p3, p4) {
+        const s = (p1.lat - p2.lat) * (p3.lng - p1.lng) - (p1.lng - p2.lng) * (p3.lat - p1.lat);
+        const t = (p1.lat - p2.lat) * (p4.lng - p1.lng) - (p1.lng - p2.lng) * (p4.lat - p1.lat);
+        if (s * t > 0) return false;
+        const u = (p3.lat - p4.lat) * (p1.lng - p3.lng) - (p3.lng - p4.lng) * (p1.lat - p3.lat);
+        const v = (p3.lat - p4.lat) * (p2.lng - p3.lng) - (p3.lng - p4.lng) * (p2.lat - p3.lat);
+        return u * v <= 0;
+    }
+
+    // --- ⊿計測ロジック（Q列対応修正） ---
+    function checkDelta(lat, lng, now) {
+        if (!lastPos) return;
+        DELTA_GATES.forEach((gate, index) => {
+            if (passedGatesInCurrentLap.has(gate.name)) return;
+            if (isIntersect({lat: gate.lat1, lng: gate.lng1}, {lat: gate.lat2, lng: gate.lng2}, lastPos, {lat, lng})) {
+                passedGatesInCurrentLap.add(gate.name);
+                if (gate.name === 'SF') {
+                    if (lapStartTime > 0) {
+                        const lapMs = now - lapStartTime;
+                        const finalTime = (lapMs/1000).toFixed(3);
+                        
+                        // Q列(p13)には⊿（差分）の合計値を送る。
+                        // 現状の実装に合わせ、p1〜p12が格納されている場合はその合計を算出
+                        let deltaTotal = 0;
+                        for(let i=1; i<=12; i++) {
+                            if(currentGateSplits[`p${i}`]) deltaTotal += parseFloat(currentGateSplits[`p${i}`]);
+                        }
+
+                        currentGateSplits['status'] = "FINISH";
+                        currentGateSplits['lap_time'] = finalTime;
+                        currentGateSplits['p13'] = deltaTotal.toFixed(3); // Q列用: ⊿の合計
+                        
+                        fetch(SHEET_URL, { 
+                            method: "POST", 
+                            mode: "no-cors", 
+                            body: JSON.stringify({
+                                ...currentGateSplits, 
+                                car_no: document.getElementById('input_car_no').value, 
+                                timestamp: new Date().toISOString()
+                            }) 
+                        });
+                    }
+                    lapStartTime = now;
+                    currentGateSplits = {};
+                    passedGatesInCurrentLap.clear();
+                    passedGatesInCurrentLap.add('SF');
+                    document.getElementById('status_label').innerText = "⊿ SF PASSED";
+                } else {
+                    // ここにリファレンスとの差分計算ロジックが入る想定
+                    const splitVal = lapStartTime > 0 ? ((now - lapStartTime) / 1000) : 0;
+                    currentGateSplits[`p${index + 1}`] = splitVal.toFixed(3);
+                    document.getElementById('status_label').innerText = `⊿ ${gate.name}`;
+                }
+            }
+        });
+    }
+
+    async function connectBLE() {
+        try {
+            bluetoothDevice = await navigator.bluetooth.requestDevice({
+                filters: [{ name: "M5_SUUKA_PRO" }], 
+                optionalServices: ["6e400001-b5a3-f393-e0a9-e50e24dcca9e"]
+            });
+            const server = await bluetoothDevice.gatt.connect();
+            const service = await server.getPrimaryService("6e400001-b5a3-f393-e0a9-e50e24dcca9e");
+            characteristic = await service.getCharacteristic("6e400003-b5a3-f393-e0a9-e50e24dcca9e");
+            characteristic.startNotifications();
+            characteristic.addEventListener('characteristicvaluechanged', (e) => {
+                const val = new TextDecoder().decode(e.target.value);
+                const parts = val.split(',');
+                if (parts.length >= 2) {
+                    const lat = parseFloat(parts[0]), lng = parseFloat(parts[1]), now = Date.now();
+                    if (lastPos) {
+                        CH_LINES.forEach((line, idx) => { if (isIntersect(line.p1, line.p2, lastPos, {lat, lng})) updateFirebaseKeep(idx); });
+                    }
+                    checkDelta(lat, lng, now);
+                    lastPos = {lat, lng};
+                }
+            });
+            document.getElementById('connect_ble_btn').innerText = "CONNECTED";
+        } catch (e) { document.getElementById('status_label').innerText = "BT ERROR"; }
+    }
+
+    document.getElementById('input_car_no').oninput = (e) => { 
+        document.getElementById('car_no_display').innerText = "# " + e.target.value; 
+    };
+    
+    let testIdx = 0;
+    document.getElementById('btn_test_ch').onclick = () => { 
+        updateFirebaseKeep(testIdx % CH_LINES.length, true); 
+        testIdx++; 
+    };
+
+    document.getElementById('btn_test_delta').onclick = () => {
+        let sumDelta = 0;
+        const d = { 
+            status: "TEST", 
+            lap_time: "1:45.00", 
+            car_no: document.getElementById('input_car_no').value, 
+            timestamp: new Date().toISOString() 
+        };
+        // p1〜p12にランダムな⊿（差分）を生成し、その合計をp13(Q列)に入れる
+        for(let i=1; i<=12; i++) {
+            const r = parseFloat((Math.random() * 2.0 - 1.0).toFixed(2));
+            d[`p${i}`] = r;
+            sumDelta += r;
+        }
+        d['p13'] = sumDelta.toFixed(2); // Q列: ⊿の合計
+
+        fetch(SHEET_URL, { method: "POST", mode: "no-cors", body: JSON.stringify(d) });
+        document.getElementById('status_label').innerText = `⊿ TEST: Total ${d['p13']}`;
+    };
+    document.getElementById('connect_ble_btn').onclick = connectBLE;
+</script>
+</body>
+</html>
